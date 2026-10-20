@@ -1,0 +1,28 @@
+{
+  "name": "opencode-openai-retry",
+  "version": "0.1.0",
+  "description": "OpenCode plugin that retries the spurious OpenAI 'Country, region, or territory not supported' error instead of letting it kill the turn",
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "openai",
+    "retry"
+  ],
+  "license": "Apache-2.0",
+  "files": ["index.ts", "retry.ts"],
+  "scripts": {
+    "test": "node --test test/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opencode/plugin": "^2.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}
