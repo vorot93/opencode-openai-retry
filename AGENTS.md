@@ -33,14 +33,17 @@ Verified empirically with `opencode run --standalone` probes (2026-10):
     load normally (options delivered — opencode-auto-permissions is the
     working example).
   - Object form `{package: "/absolute/local/path"}` loads the plugin but
-    its `options` object was NOT delivered (probe with `maxRetries: 0`
-    still ran on defaults, 5 attempts) as of 2.1.1. Tests needing a
-    specific configuration write a hook shim into the scanned plugins
-    directory instead (see `PluginInstall` in `test/helpers.ts`): a bare
+    its `options` object was NOT delivered: the probe (`maxRetries: 0`) had
+    no effect and the plugin ran the built-in defaults — 5 agent requests
+    under the pre-indefinite default, the full OpenCode ceiling (11
+    requests, ~17 min) under the current one. Tests needing a specific
+    configuration write a hook shim into the scanned plugins directory
+    instead (see `PluginInstall` in `test/helpers.ts`): a bare
     `{ id, setup }` default export loads fine — `Plugin.define` in
     `@opencode/plugin` is only a type wrapper — and the shim imports
     `<repo>/retry.ts` by absolute file URL with its options embedded as a
-    literal.
+    literal. Embed options as JavaScript source when a value is `Infinity`:
+    the shim's JSON embed renders `JSON.stringify(Infinity)` as `null`.
   - Plain-string absolute paths and `file://...` entries were silently
     dropped — no "loading plugin" log line at all.
 - A plain **non-git directory** did not get its `.opencode/` scanned. Git
@@ -65,11 +68,11 @@ Verified empirically with `opencode run --standalone` probes (2026-10):
 - The mock's agent-failure budget is stateful across runs and is not shared
   with title completions. A body containing OpenCode 2.1.1's title-agent
   prompt (`You are a title generator`) always succeeds and is not an agent
-  request. `Infinity` keeps every agent completion failing, which is what the
-  OpenCode-ceiling test needs — a shared or finite budget of 5 lets the
-  parallel title call, or an eleventh agent call, succeed and hide a short or
-  long ceiling. Restart the server between probes. Each integration test
-  builds its own via `test/helpers.ts:startMockServer`.
+  request. `Infinity` keeps every agent completion failing, which is what
+  the OpenCode-ceiling test needs: any finite budget ends the run at the
+  first success, short of the 11 requests the test asserts. Restart the
+  server between probes. Each integration test builds its own via
+  `test/helpers.ts:startMockServer`.
 - Mock servers must support BOTH streaming (SSE) and non-streaming completions;
   OpenCode sends `stream: true`.
 - OpenCode classifies the geo 403 as `provider.auth` in `SessionError`,

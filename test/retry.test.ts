@@ -156,6 +156,10 @@ test("resolveOptions falls back for invalid values", () => {
   assert.deepEqual(resolveOptions({ patterns: [4] }).patterns, [])
 })
 
+// Pins the explicit form today, and the `value === Infinity` branch in
+// `asCount` for tomorrow: the fallback for an invalid count is also Infinity
+// right now, so this assertion could not fail by itself — once a finite
+// default returns, this is what keeps an explicit Infinity intact.
 test("resolveOptions accepts Infinity explicitly as no attempt cap", () => {
   assert.deepEqual(resolveOptions({ maxRetries: Number.POSITIVE_INFINITY }).maxRetries, Number.POSITIVE_INFINITY)
 })

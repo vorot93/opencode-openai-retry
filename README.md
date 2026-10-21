@@ -37,7 +37,7 @@ scheduled. The plugin overrides the decision for matched failures:
 
 | Option       | Default    | Meaning                                                 |
 | ------------ | ---------- | ------------------------------------------------------- |
-| `maxRetries` | indefinite | Forced retries after the initial request; a finite number imposes a plugin cap |
+| `maxRetries` | indefinite | Forced retries after the initial request; a finite number imposes a plugin cap. OpenCode itself still stops after 10 retries on 2.1.1 |
 | `baseDelay`  | `1000`     | ms before the first forced retry                    |
 | `multiplier` | `2`        | Backoff multiplier per retry                        |
 | `maxDelay`   | `600000`   | Ceiling for a computed retry delay, ms (10 minutes) |

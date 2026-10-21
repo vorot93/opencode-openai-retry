@@ -28,16 +28,18 @@ test("recovers from repeated OpenAI region errors through a real opencode sessio
 })
 
 test("exhausts OpenCode's built-in retry schedule: 1 attempt + 10 forced retries, then the error surfaces", async () => {
-  // Agent completions keep failing. A budget of 5 would let a sixth agent
-  // request succeed and hide an extra retry.
+  // Every completion fails: any finite budget ends the run at its first
+  // success, short of the 11 requests asserted below.
   const mock = await startMockServer(Number.POSITIVE_INFINITY)
   const project = await makeTempProject(mock.url, {
     kind: "options-shim",
-    // The plugin is indefinite by default now, so the run only ends when
-    // OpenCode stops consulting the retry hook — 10 retries in 2.1.1. The
-    // default backoff would need ~17 minutes to reach attempt 11, so the
-    // shim mirrors index.ts with 10 ms flat waits instead.
-    options: { maxRetries: Number.POSITIVE_INFINITY, baseDelay: 10, multiplier: 1 },
+    // With the indefinite default the run only ends when OpenCode stops
+    // consulting the retry hook — 10 retries in 2.1.1. The default backoff
+    // would need ~17 minutes to reach attempt 11, so the shim mirrors
+    // index.ts with 10 ms flat waits. `maxRetries` is omitted on purpose:
+    // the shim embeds options as JSON, which has no Infinity literal, and
+    // the plugin default is what makes this run indefinite anyway.
+    options: { baseDelay: 10, multiplier: 1 },
   })
   try {
     const run = await runOpenCode(["run", "--standalone", "--format", "json", PROMPT], project.dir)

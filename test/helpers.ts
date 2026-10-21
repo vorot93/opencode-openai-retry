@@ -26,7 +26,7 @@ export interface MockServer {
  * OpenCode 2.1.1's title agent system prompt. A completion whose body contains
  * this is a title call, not the agent turn. Checked against the installed
  * 2.1.1 binary; if that prompt changes, title calls get counted as agent calls
- * and the cap test fails closed.
+ * and the tests fail closed.
  */
 const TITLE_MARK = "You are a title generator"
 

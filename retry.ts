@@ -68,6 +68,9 @@ function asNumber(value: unknown, fallback: number, min: number): number {
 
 /** A retry count is a whole number of attempts, or Infinity to remove the cap. 2.5 is not one extra try. */
 function asCount(value: unknown, fallback: number): number {
+  // Redundant while the invalid-value fallback is also Infinity, but keeps an
+  // explicit Infinity distinct from an invalid count once a finite default
+  // returns.
   if (value === Infinity) return Infinity
   const count = asNumber(value, fallback, 0)
   return Number.isInteger(count) ? count : fallback
