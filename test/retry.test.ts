@@ -23,9 +23,20 @@ test("backs off from the upcoming attempt, so attempt 3 waits twice the base del
   assert.deepEqual(decide(input(5)), { retry: true, delay: 8000 })
 })
 
-test("stops forcing retries once the upcoming attempt passes 1 + maxRetries", () => {
+test("by default forces every hook call, holding the delay at the ceiling", () => {
+  // The plugin no longer imposes its own attempt cap: it votes retry whenever
+  // OpenCode still asks. OpenCode's built-in schedule (10 retries) is the
+  // stopping rule. Defaults hold the delay at the 10-minute ceiling.
   assert.deepEqual(decide(input(5)), { retry: true, delay: 8000 })
-  assert.equal(decide(input(6)), null)
+  assert.deepEqual(decide(input(6)), { retry: true, delay: 16000 })
+  assert.deepEqual(decide(input(12)), { retry: true, delay: 600_000 })
+  assert.deepEqual(decide(input(100)), { retry: true, delay: 600_000 })
+})
+
+test("stops forcing retries once the upcoming attempt passes 1 + an explicit maxRetries", () => {
+  const o = resolveOptions({ maxRetries: 4 })
+  assert.deepEqual(decide(input(5), o), { retry: true, delay: 8000 })
+  assert.equal(decide(input(6), o), null)
 })
 
 test("leaves the decision untouched for other error messages", () => {
@@ -98,7 +109,8 @@ test("honors a custom base delay on the first forced retry", () => {
 })
 
 test("caps the backoff delay once the upcoming-attempt exponent reaches the ceiling", () => {
-  const o = resolveOptions({ maxRetries: 10 })
+  // Explicit maxDelay so the assertion is independent of the plugin's default ceiling.
+  const o = resolveOptions({ maxRetries: 10, maxDelay: 30_000 })
   // attempt 6 is the 5th forced retry: 1000 * 2^4 = 16000, still under the ceiling.
   // The old exponent (attempt - 1) would already cap this at 30000.
   assert.deepEqual(decide(input(6), o), { retry: true, delay: 16000 })
@@ -118,29 +130,34 @@ test("forces nothing when maxRetries is 0, because the first hook call is alread
   assert.equal(decide(input(2), o), null)
 })
 
-test("resolveOptions applies documented defaults", () => {
+test("resolveOptions applies documented defaults: indefinite retries, 10-minute delay ceiling", () => {
   assert.deepEqual(resolveOptions(undefined), {
     patterns: [],
     providers: undefined,
-    maxRetries: 4,
+    maxRetries: Number.POSITIVE_INFINITY,
     baseDelay: 1000,
     multiplier: 2,
-    maxDelay: 30000,
+    maxDelay: 600_000,
   })
 })
 
 test("resolveOptions falls back for invalid values", () => {
-  assert.deepEqual(resolveOptions({ maxRetries: -1 }).maxRetries, 4)
-  assert.deepEqual(resolveOptions({ maxRetries: Number.NaN }).maxRetries, 4)
-  assert.deepEqual(resolveOptions({ maxRetries: 2.5 }).maxRetries, 4)
+  // Invalid counts fall back to the default, which is now indefinite.
+  assert.deepEqual(resolveOptions({ maxRetries: -1 }).maxRetries, Number.POSITIVE_INFINITY)
+  assert.deepEqual(resolveOptions({ maxRetries: Number.NaN }).maxRetries, Number.POSITIVE_INFINITY)
+  assert.deepEqual(resolveOptions({ maxRetries: 2.5 }).maxRetries, Number.POSITIVE_INFINITY)
   assert.deepEqual(resolveOptions({ baseDelay: 1500.5 }).baseDelay, 1500.5)
   assert.deepEqual(resolveOptions({ multiplier: 1.5 }).multiplier, 1.5)
   assert.deepEqual(resolveOptions({ baseDelay: "x" }).baseDelay, 1000)
   assert.deepEqual(resolveOptions({ multiplier: 0 }).multiplier, 2)
-  assert.deepEqual(resolveOptions({ maxDelay: -5 }).maxDelay, 30000)
+  assert.deepEqual(resolveOptions({ maxDelay: -5 }).maxDelay, 600_000)
   assert.deepEqual(resolveOptions({ providers: "openai" }).providers, undefined)
   assert.deepEqual(resolveOptions({ providers: ["", "  "] }).providers, undefined)
   assert.deepEqual(resolveOptions({ patterns: [4] }).patterns, [])
+})
+
+test("resolveOptions accepts Infinity explicitly as no attempt cap", () => {
+  assert.deepEqual(resolveOptions({ maxRetries: Number.POSITIVE_INFINITY }).maxRetries, Number.POSITIVE_INFINITY)
 })
 
 test("resolveOptions trims and normalizes strings, using them only when valid", () => {

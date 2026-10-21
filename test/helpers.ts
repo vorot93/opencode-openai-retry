@@ -2,7 +2,7 @@ import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { pathToFileURL, fileURLToPath } from "node:url"
 
 export const REPO = fileURLToPath(new URL("..", import.meta.url))
 
@@ -206,16 +206,59 @@ export interface TempProject {
   cleanup(): Promise<void>
 }
 
+export type PluginInstall =
+  /** Symlink the repository itself (the production loading shape; defaults apply). */
+  | { kind: "symlink" }
+  /**
+   * Write a shim plugin that registers the same retry hook but resolves its
+   * options from an embedded literal. OpenCode 2.1.1 does not deliver the
+   * `options` object to locally-pathed plugins, so tests that need a specific
+   * configuration go through this shape.
+   */
+  | { kind: "options-shim"; options: Record<string, unknown> }
+
 /**
  * Temp git project with the plugin auto-loaded through `.opencode/plugins/`
- * (the loading shape that works in OpenCode 2.1.1) symlinked to the REPO,
- * with the default model wired to the mock server.
+ * (the loading shape that works in OpenCode 2.1.1), with the default model
+ * wired to the mock server.
  */
-export async function makeTempProject(mockUrl: string): Promise<TempProject> {
+export async function makeTempProject(mockUrl: string, plugin: PluginInstall = { kind: "symlink" }): Promise<TempProject> {
   const dir = await mkdtemp("/tmp/opencode/openai-retry-e2e-")
+  const install = join(dir, ".opencode/plugins", "opencode-openai-retry")
   try {
     await mkdir(join(dir, ".opencode/plugins"), { recursive: true })
-    await symlink(REPO, join(dir, ".opencode/plugins", "opencode-openai-retry"))
+    if (plugin.kind === "symlink") {
+      await symlink(REPO, install)
+    } else {
+      const importSource = JSON.stringify(pathToFileURL(join(REPO, "retry.ts")).href)
+      const shim = `import { decide, resolveOptions } from ${importSource}
+
+// Mirror of the published plugin's retry hook, with options supplied inline
+// because OpenCode 2.1.1 does not deliver plugin options to local loads.
+const options = resolveOptions(${JSON.stringify(plugin.options)})
+
+export default {
+  id: "opencode-openai-retry",
+  async setup(ctx) {
+    const registration = await ctx.session.hook("retry", (event) => {
+      const decision = decide(
+        {
+          attempt: event.attempt,
+          message: event.error.message,
+          providerID: event.model.providerID,
+          body: event.error.response?.body,
+        },
+        options,
+      )
+      if (decision) event.decision = decision
+    })
+    return () => registration.dispose()
+  },
+}
+`
+      await mkdir(install, { recursive: true })
+      await writeFile(join(install, "index.ts"), shim)
+    }
     await writeFile(
       join(dir, "opencode.json"),
       JSON.stringify({

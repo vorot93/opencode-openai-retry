@@ -6,7 +6,7 @@ README.md; this file holds the non-obvious environment facts and gotchas.
 ## Commands
 
 - Tests: `npm run test` (all) — `node --test test/retry.test.ts` (unit only,
-  fast) or `node --test test/integration.test.ts` (~20 s alone).
+  fast) or `node --test test/integration.test.ts` (~9 s alone).
 - Typecheck: `npm run typecheck`.
 - Runtime is Node 26 (no bun installed); OpenCode itself is a Bun binary but
   test code is plain Node with its own strip-types TS support.
@@ -34,7 +34,13 @@ Verified empirically with `opencode run --standalone` probes (2026-10):
     working example).
   - Object form `{package: "/absolute/local/path"}` loads the plugin but
     its `options` object was NOT delivered (probe with `maxRetries: 0`
-    still ran on defaults, 5 attempts) as of 2.1.1.
+    still ran on defaults, 5 attempts) as of 2.1.1. Tests needing a
+    specific configuration write a hook shim into the scanned plugins
+    directory instead (see `PluginInstall` in `test/helpers.ts`): a bare
+    `{ id, setup }` default export loads fine — `Plugin.define` in
+    `@opencode/plugin` is only a type wrapper — and the shim imports
+    `<repo>/retry.ts` by absolute file URL with its options embedded as a
+    literal.
   - Plain-string absolute paths and `file://...` entries were silently
     dropped — no "loading plugin" log line at all.
 - A plain **non-git directory** did not get its `.opencode/` scanned. Git
@@ -60,18 +66,18 @@ Verified empirically with `opencode run --standalone` probes (2026-10):
   with title completions. A body containing OpenCode 2.1.1's title-agent
   prompt (`You are a title generator`) always succeeds and is not an agent
   request. `Infinity` keeps every agent completion failing, which is what the
-  cap test needs — a shared or finite budget of 5 lets the parallel title
-  call, or a sixth agent call, succeed and hide a short or long cap. Restart
-  the server between probes. Each integration test builds its own via
-  `test/helpers.ts:startMockServer`.
+  OpenCode-ceiling test needs — a shared or finite budget of 5 lets the
+  parallel title call, or an eleventh agent call, succeed and hide a short or
+  long ceiling. Restart the server between probes. Each integration test
+  builds its own via `test/helpers.ts:startMockServer`.
 - Mock servers must support BOTH streaming (SSE) and non-streaming completions;
   OpenCode sends `stream: true`.
 - OpenCode classifies the geo 403 as `provider.auth` in `SessionError`,
   with the original message in `error.message` and the raw 403 body in
   `error.response.body`. The plugin matches both fields (see `retry.ts`).
-- When OpenCode gives up (cap reached), the outgoing run exits non-zero and
-  its stdout (json format) carries the `provider.auth` error — the cap
-  integration test asserts against exactly that.
+- When OpenCode gives up (ceiling reached), the outgoing run exits non-zero
+  and its stdout (json format) carries the `provider.auth` error — the
+  ceiling integration test asserts against exactly that.
 
 ## Plugin behavior contract
 
@@ -79,18 +85,26 @@ Verified empirically with `opencode run --standalone` probes (2026-10):
   and for compaction. It does not run for title generation or
   `session.generate`. A geo error while titling does not kill the turn; if
   the selected title model differs from the primary, OpenCode makes one more
-  attempt on the primary, also outside this hook. We only write
-  `event.decision` when a pattern matches and the attempt cap is not reached;
-  otherwise the hook is a no-op and OpenCode's own classification stands.
-  Returning null does not veto a retry OpenCode already decided to make.
+  attempt on the primary, also outside this hook. We write `event.decision`
+  when a pattern matches and, if a finite `maxRetries` is set, its cap is not
+  reached — the default is indefinite, so the plugin votes retry on every
+  matching hook call; otherwise the hook is a no-op and OpenCode's own
+  classification stands. Writing nothing does not veto a retry OpenCode
+  already decided to make.
 - OpenCode's built-in schedule stops calling the hook after 10 retries
-  (`Schedule.recurs(10)` in `model-retry.ts` at tag v2.1.1). `maxRetries`
-  above 10 cannot be fully honored.
+  (`Schedule.recurs(10)` in `model-retry.ts` at tag v2.1.1 — re-read from
+  source 2026-10; the docs call it "the built-in maximum attempt count
+  remains a hard limit"). It is not configurable. Everything the plugin
+  decides is still honored — token votes, delays — only the *count* is
+  upstream-imposed. No plugin-side value can exceed it, so the plugin's own
+  default (indefinite) simply means "never stop on my account": the ceiling
+  integration test pins 11 agent requests (1 + 10 forced retries).
 - OpenCode 2.1.1 reports the upcoming physical attempt. The first failure
   arrives as attempt 2; the hook is not called for the initial request.
   When OpenCode proposes `retry: false` the plugin forces attempts
-  `2..1+maxRetries` for a matched error. Delay is
-  `baseDelay * multiplier^(attempt - 2)`, so the first forced retry waits
-  `baseDelay`. Treating `attempt` as the attempt that just failed drops the
-  last retry and shifts every delay up by the multiplier. OpenCode's built-in
-  maximum attempt count is a hard ceiling above that cap.
+  `2..1+maxRetries` for a matched error — with the default Infinity, that
+  is every hook call. Delay is `baseDelay * multiplier^(attempt - 2)`, so
+  the first forced retry waits `baseDelay`. Treating `attempt` as the
+  attempt that just failed drops the last retry and shifts every delay up
+  by the multiplier. OpenCode's built-in maximum attempt count is a hard
+  ceiling above any plugin-side cap.

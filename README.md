@@ -23,27 +23,31 @@ scheduled. The plugin overrides the decision for matched failures:
   - `Country, region, or territory not supported` (the human message), and
   - `unsupported_country_region_territory` (the OpenAI error code).
 - **Retry**: `{ retry: true, delay }` so OpenCode re-issues the same request
-  mid-turn, with exponential backoff — default 1 s, 2 s, 4 s, 8 s (capped at
-  30 s).
-- **Cap**: after the retry limit the plugin stops overriding; the error shows
-  up in its usual red form and you take over manually. Default: 4 forced
-  retries after the initial request (5 attempts total).
+  mid-turn, with exponential backoff — default 1 s, 2 s, 4 s, 8 s, … 8 m 32 s,
+  every wait capped at 10 minutes.
+- **Stopping**: the plugin itself no longer stops; it votes retry on every
+  matched hook call, indefinitely. The stopping rule is OpenCode's own
+  built-in schedule — on 2.1.1 it stops consulting the retry hook after
+  10 retries (11 attempts total, roughly 17 minutes of waiting on the default
+  backoff) — and then the error shows up in its usual red form for you to
+  take over manually. A finite `maxRetries` restores a plugin-side cap.
 - Non-matching failures are left exactly as OpenCode classified them.
 
 ## Options
 
-| Option       | Default | Meaning                                             |
-| ------------ | ------- | --------------------------------------------------- |
-| `maxRetries` | `4`     | Forced retries after the initial request            |
-| `baseDelay`  | `1000`  | ms before the first forced retry                    |
-| `multiplier` | `2`     | Backoff multiplier per retry                        |
-| `maxDelay`   | `30000` | Ceiling for a computed retry delay, ms              |
-| `providers`  | all     | Only force retries for these provider IDs           |
-| `patterns`   | —       | Extra case-insensitive substrings worth retrying    |
+| Option       | Default    | Meaning                                                 |
+| ------------ | ---------- | ------------------------------------------------------- |
+| `maxRetries` | indefinite | Forced retries after the initial request; a finite number imposes a plugin cap |
+| `baseDelay`  | `1000`     | ms before the first forced retry                    |
+| `multiplier` | `2`        | Backoff multiplier per retry                        |
+| `maxDelay`   | `600000`   | Ceiling for a computed retry delay, ms (10 minutes) |
+| `providers`  | all        | Only force retries for these provider IDs           |
+| `patterns`   | —          | Extra case-insensitive substrings worth retrying    |
 
 Invalid values fall back to the defaults silently. `maxRetries` must be a
-whole number; `2.5` is not a count and falls back to 4. Delays and the
-multiplier may be fractional.
+whole number or `Infinity`; `2.5` is not a count, falls back to indefinite.
+Delays and the multiplier may be fractional. JSON has no `Infinity` literal —
+omit `maxRetries` (that *is* indefinite) or give a finite number.
 
 Options arrive through the `plugins` object form in `opencode.json`:
 
@@ -92,17 +96,21 @@ npm run typecheck   # tsc --noEmit
 The unit suite covers the pure decision module (`retry.ts`); the integration
 suite runs a real `opencode run --standalone` session against a local
 OpenAI-compatible mock server. Title calls succeed and do not spend the
-failure budget. The agent turn 403s twice and then recovers, then keeps
-403ing until the cap: 5 agent requests, then the error surfaces. See
-`test/` and `AGENTS.md` for the environment quirks this depends on.
+failure budget. The agent turn 403s twice and then recovers. A second test
+keeps 403ing until OpenCode's ceiling: 11 agent requests (1 + 10 forced
+retries, driven at 10 ms waits through an options shim), then the error
+surfaces. See `test/` and `AGENTS.md` for the environment quirks this
+depends on.
 
 ## Compatibility
 
 - Written against OpenCode V2 plugin API (`@opencode/plugin` 2.1.1) and
   tested with OpenCode 2.1.1.
-- OpenCode stops calling the retry hook after 10 retries. A `maxRetries`
-  above that cannot be fully honored. At this plugin's own cap the decision
-  is left to OpenCode; the geo 403 is already terminal there.
+- OpenCode stops calling the retry hook after 10 retries (its built-in
+  schedule, `Schedule.recurs(10)` in 2.1.1's `model-retry.ts`; the plugin
+  docs call it "a hard limit" and it is not configurable). The indefinite
+  default votes retry every time OpenCode asks and lets that ceiling stop
+  the run; a finite `maxRetries` cannot be honored past the ceiling either.
 - Provider scopes: matches are text-based, so OpenAI-compatible endpoints
   that pass through OpenAI's geo wall are covered too; narrow with
   `providers` if you need to.
